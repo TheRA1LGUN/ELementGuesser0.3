@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>The element guesser</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --bg1:#0b1220;--bg2:#070b13;--card:#121a2b;--muted:#91a4c7;--edge:#20304d;
+    --ok:#12b886;--no:#ef4444;--sub:#475569;--chip:#1a2440;--text:#e6eefc;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    color:var(--text); background:linear-gradient(180deg,var(--bg1),var(--bg2));
+    min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:32px;
+  }
+  .wrap{width:100%; max-width:920px}
+  header{margin-bottom:18px; padding:0 8px}
+  h1{margin:0; font-size:clamp(22px,3.5vw,32px)}
+  .subtitle{color:var(--muted); margin-top:6px}
+  .status{
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:14px 0 22px;
+  }
+  .badge{
+    display:inline-flex; gap:6px; align-items:center;
+    background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08);
+    padding:6px 12px; border-radius:999px; color:#cfe1ff; font-size:14px;
+  }
+  .grow{margin-left:auto}
+  .btn{
+    border:1px solid rgba(255,255,255,.08); background:#1a2340;
+    color:white; padding:10px 16px; border-radius:14px; cursor:pointer; font-weight:600;
+    transition:.18s transform,.18s background; box-shadow:0 6px 18px rgba(0,0,0,.18);
+  }
+  .btn:active{transform:scale(.98)}
+  .btn.ok{background:var(--ok)}
+  .btn.no{background:var(--no)}
+  .btn.sub{background:var(--sub)}
+  .btn.ghost{background:transparent}
+  .card{
+    background:var(--card); border:1px solid var(--edge); border-radius:18px; padding:22px;
+  }
+  .qtext{font-size:clamp(18px,2.2vw,22px); margin:0 0 12px}
+  .help{color:var(--muted); margin:0 0 18px}
+  .grid-guesses{
+    display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  }
+  .guess{
+    background:#0f1627; border:1px solid var(--edge); border-radius:14px; padding:12px;
+  }
+  .guess h4{margin:0; font-size:18px}
+  .guess small{color:#a9bbde}
+  .chips{display:flex; flex-wrap:wrap; gap:8px; margin-top:14px}
+  .chip{
+    background:var(--chip); border:1px solid rgba(255,255,255,.06); color:#cfe1ff;
+    padding:6px 10px; border-radius:999px; font-size:12px
+  }
+  .footer{color:#94a9d6; margin-top:24px; font-size:14px}
+  /* confetti */
+  #confetti{position:fixed; left:0; top:0; width:100%; height:100%; pointer-events:none; overflow:hidden}
+  .confetti{
+    position:absolute; width:10px; height:16px; will-change:transform,opacity;
+  }
+  /* fail wobble */
+  .shake{animation:shake .6s}
+  @keyframes shake{
+    10%,90%{transform:translateX(-1px)} 20%,80%{transform:translateX(2px)}
+    30%,50%,70%{transform:translateX(-4px)} 40%,60%{transform:translateX(4px)}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Periodic Table Akinator</h1>
+    <div class="subtitle">Think of any element (1–118). I’ll ask group/period/block/valence questions and guess it.</div>
+    <div class="status">
+      <span class="badge">Remaining <b id="remaining">118</b></span>
+      <span class="badge">Questions <b id="qcount">0</b></span>
+      <span class="badge" id="bestsplit" style="display:none"></span>
+      <div class="grow"></div>
+      <button class="btn ghost" id="undoBtn">Undo</button>
+      <button class="btn sub" id="restartBtn">Restart</button>
+    </div>
+  </header>
+
+  <main class="card" id="stage">
+    <p class="qtext" id="qtext">Think of an element. Ready?</p>
+    <p class="help" id="help">Answer with Yes / No / Skip. I’ll choose questions that split the possibilities best.</p>
+    <div>
+      <button class="btn ok" id="yesBtn">Yes</button>
+      <button class="btn no" id="noBtn">No</button>
+      <button class="btn" id="skipBtn">Skip / Not sure</button>
+    </div>
+    <div id="candidates" class="chips"></div>
+  </main>
+
+<!-- confetti container -->
+<div id="confetti"></div>
+
+<script>
+/* ===================== DATA ===================== */
+/* Minimal base: [Z, Sym, Name] */
+const ELEMENTS = [
+[1,"H","Hydrogen"],[2,"He","Helium"],[3,"Li","Lithium"],[4,"Be","Beryllium"],[5,"B","Boron"],[6,"C","Carbon"],[7,"N","Nitrogen"],[8,"O","Oxygen"],[9,"F","Fluorine"],[10,"Ne","Neon"],
+[11,"Na","Sodium"],[12,"Mg","Magnesium"],[13,"Al","Aluminum"],[14,"Si","Silicon"],[15,"P","Phosphorus"],[16,"S","Sulfur"],[17,"Cl","Chlorine"],[18,"Ar","Argon"],
+[19,"K","Potassium"],[20,"Ca","Calcium"],[21,"Sc","Scandium"],[22,"Ti","Titanium"],[23,"V","Vanadium"],[24,"Cr","Chromium"],[25,"Mn","Manganese"],[26,"Fe","Iron"],[27,"Co","Cobalt"],[28,"Ni","Nickel"],[29,"Cu","Copper"],[30,"Zn","Zinc"],
+[31,"Ga","Gallium"],[32,"Ge","Germanium"],[33,"As","Arsenic"],[34,"Se","Selenium"],[35,"Br","Bromine"],[36,"Kr","Krypton"],
+[37,"Rb","Rubidium"],[38,"Sr","Strontium"],[39,"Y","Yttrium"],[40,"Zr","Zirconium"],[41,"Nb","Niobium"],[42,"Mo","Molybdenum"],[43,"Tc","Technetium"],[44,"Ru","Ruthenium"],[45,"Rh","Rhodium"],[46,"Pd","Palladium"],[47,"Ag","Silver"],[48,"Cd","Cadmium"],
+[49,"In","Indium"],[50,"Sn","Tin"],[51,"Sb","Antimony"],[52,"Te","Tellurium"],[53,"I","Iodine"],[54,"Xe","Xenon"],
+[55,"Cs","Cesium"],[56,"Ba","Barium"],[57,"La","Lanthanum"],[58,"Ce","Cerium"],[59,"Pr","Praseodymium"],[60,"Nd","Neodymium"],[61,"Pm","Promethium"],[62,"Sm","Samarium"],[63,"Eu","Europium"],[64,"Gd","Gadolinium"],[65,"Tb","Terbium"],[66,"Dy","Dysprosium"],[67,"Ho","Holmium"],[68,"Er","Erbium"],[69,"Tm","Thulium"],[70,"Yb","Ytterbium"],[71,"Lu","Lutetium"],
+[72,"Hf","Hafnium"],[73,"Ta","Tantalum"],[74,"W","Tungsten"],[75,"Re","Rhenium"],[76,"Os","Osmium"],[77,"Ir","Iridium"],[78,"Pt","Platinum"],[79,"Au","Gold"],[80,"Hg","Mercury"],[81,"Tl","Thallium"],[82,"Pb","Lead"],[83,"Bi","Bismuth"],[84,"Po","Polonium"],[85,"At","Astatine"],[86,"Rn","Radon"],
+[87,"Fr","Francium"],[88,"Ra","Radium"],[89,"Ac","Actinium"],[90,"Th","Thorium"],[91,"Pa","Protactinium"],[92,"U","Uranium"],[93,"Np","Neptunium"],[94,"Pu","Plutonium"],[95,"Am","Americium"],[96,"Cm","Curium"],[97,"Bk","Berkelium"],[98,"Cf","Californium"],[99,"Es","Einsteinium"],[100,"Fm","Fermium"],[101,"Md","Mendelevium"],[102,"No","Nobelium"],[103,"Lr","Lawrencium"],
+[104,"Rf","Rutherfordium"],[105,"Db","Dubnium"],[106,"Sg","Seaborgium"],[107,"Bh","Bohrium"],[108,"Hs","Hassium"],[109,"Mt","Meitnerium"],[110,"Ds","Darmstadtium"],[111,"Rg","Roentgenium"],[112,"Cn","Copernicium"],[113,"Nh","Nihonium"],[114,"Fl","Flerovium"],[115,"Mc","Moscovium"],[116,"Lv","Livermorium"],[117,"Ts","Tennessine"],[118,"Og","Oganesson"]
+];
+
+/* Group sets (IUPAC 1–18). For f-block we leave group = null except La/Ac (3). */
+const GROUP = {
+  1: new Set([1,3,11,19,37,55,87]),
+  2: new Set([4,12,20,38,56,88]),
+  3: new Set([21,39,57,89]), // using La/Ac as group 3 here
+  4: new Set([22,40,72,104]),
+  5: new Set([23,41,73,105]),
+  6: new Set([24,42,74,106]),
+  7: new Set([25,43,75,107]),
+  8: new Set([26,44,76,108]),
+  9: new Set([27,45,77,109]),
+  10: new Set([28,46,78,110]),
+  11: new Set([29,47,79,111]),
+  12: new Set([30,48,80,112]),
+  13: new Set([5,13,31,49,81,113]),
+  14: new Set([6,14,32,50,82,114]),
+  15: new Set([7,15,33,51,83,115]),
+  16: new Set([8,16,34,52,84,116]),
+  17: new Set([9,17,35,53,85,117]),
+  18: new Set([2,10,18,36,54,86,118])
+};
+/* Blocks; f-block = 57–71, 89–103; d-block as typical ranges; s-block groups 1–2 + He; p-block groups 13–18 (minus He already s) */
+function blockOf(Z){
+  if ((Z>=57&&Z<=71)||(Z>=89&&Z<=103)) return "f";
+  if ((Z>=21&&Z<=30)||(Z>=39&&Z<=48)||(Z>=72&&Z<=80)||(Z>=104&&Z<=112)) return "d";
+  if (GROUP[1].has(Z)||GROUP[2].has(Z)||Z===2||Z===1) return "s";
+  return "p";
+}
+/* Group number (null for most f-block) */
+function groupOf(Z){
+  for (let g=1; g<=18; g++) if (GROUP[g].has(Z)) return g;
+  return null;
+}
+/* Period from Z by ranges (good approximation) */
+function periodOf(Z){
+  if (Z<=2) return 1;
+  if (Z<=10) return 2;
+  if (Z<=18) return 3;
+  if (Z<=36) return 4;
+  if (Z<=54) return 5;
+  if (Z<=86) return 6;
+  return 7;
+}
+/* Main-group valence electrons: groups 1–2 → 1–2; 13–18 → 3–8 (He special = 2). Otherwise null. */
+function valenceOf(Z){
+  const g = groupOf(Z);
+  if (g===1||g===2) return g;
+  if (g===18) return (Z===2?2:8);
+  if (g>=13&&g<=17) return g-10;
+  return null; // transition and f-block
+}
+/* Families from group to make natural questions */
+function familyOf(Z){
+  const g = groupOf(Z);
+  if (g===1 && Z!==1) return "alkali metal";
+  if (g===2) return "alkaline earth";
+  if (g===17) return "halogen";
+  if (g===18) return "noble gas";
+  if (blockOf(Z)==="d") return "transition";
+  if ((Z>=57&&Z<=71)) return "lanthanide";
+  if ((Z>=89&&Z<=103)) return "actinide";
+  // Others: p-block main-group or H
+  return "main group";
+}
+/* Build enriched element objects */
+const ALL = ELEMENTS.map(([Z,symbol,name])=>{
+  const group = groupOf(Z);
+  const period = periodOf(Z);
+  const block = blockOf(Z);
+  const valence = valenceOf(Z);
+  const family = familyOf(Z);
+  return {Z,symbol,name,group,period,block,valence,family};
+});
+
+/* ===================== QUESTION BANK ===================== */
+/* Each question returns:
+   - predicate(e) -> true/false or null (null = not applicable; ignored for scoring)
+   - text: shown to user
+   - help: optional hint
+*/
+function makeQuestion_bank(){
+  const qs = [];
+
+  // Group questions (1–18)
+  for (let g=1; g<=18; g++){
+    const label = g===1?"Group 1 (alkali metals)":
+                  g===2?"Group 2 (alkaline earth metals)":
+                  g===17?"Group 17 (halogens)":
+                  g===18?"Group 18 (noble gases)":
+                  `Group ${g}`;
+    qs.push({
+      id:`group-${g}`,
+      text:`Is it in ${label}?`,
+      help:`IUPAC group ${g}.`,
+      predicate: e => (e.group==null?null:e.group===g)
+    });
+  }
+
+  // Period questions (1–7)
+  for (let p=1; p<=7; p++){
+    qs.push({
+      id:`period-${p}`,
+      text:`Is it in Period ${p}?`,
+      help:`Horizontal rows on the periodic table.`,
+      predicate: e => e.period===p
+    });
+  }
+
+  // Block questions
+  ["s","p","d","f"].forEach(b=>{
+    const name = {s:"s-block",p:"p-block",d:"d-block (transition)",f:"f-block (lanthanides/actinides)"}[b];
+    qs.push({
+      id:`block-${b}`,
+      text:`Is it in the ${name}?`,
+      help:`Based on the outermost subshell being filled.`,
+      predicate: e => e.block===b
+    });
+  });
+
+  // Family questions (derived from group/block)
+  const fams = [
+    ["alkali metal", "Group 1 (except H)"],
+    ["alkaline earth","Group 2"],
+    ["halogen","Group 17"],
+    ["noble gas","Group 18"],
+    ["transition","d-block"],
+    ["lanthanide","57–71 (f-block)"],
+    ["actinide","89–103 (f-block)"],
+    ["main group","s/p-block others"]
+  ];
+  for (const [fam,label] of fams){
+    qs.push({
+      id:`family-${fam.replace(/\\s+/g,'')}`,
+      text:`Is it a ${label.includes("Group")?label:fam}?`,
+      help:`Family: ${label}.`,
+      predicate: e => e.family===fam
+    });
+  }
+
+  // Valence electron questions (main-group only; others not applicable)
+  for (let v=1; v<=8; v++){
+    qs.push({
+      id:`valence-${v}`,
+      text:`Does it have ${v} valence electron${v===1?"":"s"}?`,
+      help:`Main-group rule: Groups 1–2 → 1–2; 13–18 → 3–8 (He = 2). d/f-block not applicable.`,
+      predicate: e => (e.valence==null?null:e.valence===v)
+    });
+  }
+
+  // Low/High Z range splitters (for tie-breaking)
+  const ranges = [[1,10],[11,18],[19,36],[37,54],[55,86],[87,118]];
+  ranges.forEach(([a,b],i)=>{
+    qs.push({
+      id:`Z-${a}-${b}`,
+      text:`Is its atomic number between ${a} and ${b}?`,
+      help:`Rough range question.`,
+      predicate: e => e.Z>=a && e.Z<=b
+    });
+  });
+
+  return qs;
+}
+const QUESTION_BANK = makeQuestion_bank();
+
+/* ===================== ENGINE ===================== */
+const state = {
+  answers: [], // {id, value:true|false|null}
+  rejects: []  // Z that were guessed and rejected
+};
+
+function visiblePool(){
+  let pool = ALL.filter(e => !state.rejects.includes(e.Z));
+  for (const a of state.answers){
+    if (a.value===null) continue;
+    const q = QUESTION_BANK.find(q=>q.id===a.id);
+    if (!q) continue;
+    pool = pool.filter(e => q.predicate(e)===a.value);
+  }
+  return pool;
+}
+
+/* Information gain heuristic:
+   - Consider only unanswered questions.
+   - For each, evaluate on current pool, counting only applicable items (predicate!=null).
+   - Score = min(trueCount,falseCount) to prefer ~50/50 splits.
+   - Penalize low coverage (few applicable items).
+*/
+function bestQuestion(pool){
+  const answered = new Set(state.answers.map(a=>a.id));
+  let best=null, bestScore=-1, bestCounts=null;
+  for (const q of QUESTION_BANK){
+    if (answered.has(q.id)) continue;
+    let t=0,f=0, applicable=0;
+    for (const e of pool){
+      const r = q.predicate(e);
+      if (r===null) continue;
+      applicable++;
+      if (r) t++; else f++;
+    }
+    if (applicable<2) continue; // useless
+    if (t===0||f===0) continue; // no split
+    const coverage = applicable/pool.length; // 0..1
+    const splitScore = Math.min(t,f);
+    const score = splitScore * (0.6 + 0.4*coverage);
+    if (score>bestScore){ best=q; bestScore=score; bestCounts=[t,f,applicable]; }
+  }
+  if (!best) return null;
+  return {question:best, counts:bestCounts};
+}
+
+/* ===================== UI ===================== */
+const $ = sel => document.querySelector(sel);
+const qtext = $("#qtext");
+const help = $("#help");
+const remaining = $("#remaining");
+const qcount = $("#qcount");
+const bestsplit = $("#bestsplit");
+const yesBtn = $("#yesBtn"), noBtn = $("#noBtn"), skipBtn = $("#skipBtn");
+const undoBtn = $("#undoBtn"), restartBtn = $("#restartBtn");
+const stage = $("#stage");
+const chipsBox = $("#candidates");
+
+function render(){
+  const pool = visiblePool();
+  remaining.textContent = pool.length.toString();
+  qcount.textContent = state.answers.filter(a=>a.value!==null).length.toString();
+
+  // Candidate chips (first 80)
+  chipsBox.innerHTML = pool.slice(0,80).map(e=>`<span class="chip" title="#${e.Z} ${e.name}">${e.symbol}</span>`).join("")
+    + (pool.length>80?`<span class="chip">+${pool.length-80} more…</span>`:"");
+
+  // Choose next question or switch to guess mode
+  const bq = bestQuestion(pool);
+  if (!bq || pool.length<=4){
+    enterGuessMode(pool);
+    return;
+  }
+  bestsplit.style.display = "";
+  bestsplit.className = "badge";
+  const [t,f,app] = bq.counts;
+  bestsplit.textContent = `Best split ≈ ${t}/${f} (applies to ${app}/${pool.length})`;
+  qtext.textContent = bq.question.text;
+  help.textContent = bq.question.help || "";
+  yesBtn.onclick = () => { state.answers.push({id:bq.question.id,value:true}); render(); };
+  noBtn.onclick  = () => { state.answers.push({id:bq.question.id,value:false}); render(); };
+  skipBtn.onclick = () => { state.answers.push({id:bq.question.id,value:null}); render(); };
+  undoBtn.onclick = undo;
+  restartBtn.onclick = restart;
+}
+
+function enterGuessMode(pool){
+  bestsplit.style.display = "none";
+  if (pool.length===0){
+    qtext.textContent = "I’m stumped — no elements match those answers.";
+    help.textContent = "Try Undo or Restart.";
+    yesBtn.style.display = "none"; noBtn.style.display = "none"; skipBtn.textContent = "Restart"; skipBtn.onclick = restart;
+    return;
+  }
+  // set up per-element guessing loop
+  let idx = 0;
+  help.textContent = "Final guesses based on your answers.";
+  askOne();
+
+  function askOne(){
+    const e = pool[idx];
+    qtext.innerHTML = `Is it <b>${e.name}</b> <small>(#${e.Z} • ${e.symbol}${e.group?` • Group ${e.group}`:""} • Period ${e.period} • ${e.block}-block${e.valence!=null?` • ${e.valence} valence e⁻`:""})</small>?`;
+    yesBtn.style.display = ""; noBtn.style.display = ""; skipBtn.style.display = "";
+    yesBtn.textContent = "Yes"; noBtn.textContent = "No"; skipBtn.textContent = "Not sure";
+    yesBtn.onclick = () => success(e);
+    noBtn.onclick = () => {
+      state.rejects.push(e.Z);
+      idx++;
+      if (idx >= pool.length){ failure(); }
+      else askOne();
+    };
+    skipBtn.onclick = () => { idx++; if (idx>=pool.length) failure(); else askOne(); };
+  }
+}
+
+/* Undo: prefer undoing last rejection, else last answered question */
+function undo(){
+  if (state.rejects.length){
+    state.rejects.pop();
+  } else if (state.answers.length){
+    state.answers.pop();
+  }
+  yesBtn.style.display = ""; noBtn.style.display = ""; skipBtn.style.display = "";
+  render();
+}
+function restart(){
+  state.answers = []; state.rejects = [];
+  yesBtn.style.display = ""; noBtn.style.display = ""; skipBtn.style.display = "";
+  qtext.textContent = "Think of an element. Ready?";
+  help.textContent = "Answer with Yes / No / Skip. I’ll choose questions that split the possibilities best.";
+  render();
+}
+
+/* ===================== SUCCESS / FAIL FX ===================== */
+function success(e){
+  playSuccess();
+  confettiBurst();
+  stage.classList.remove("shake");
+  qtext.innerHTML = `🎉 Nailed it! <b>${e.name}</b> (#${e.Z}, ${e.symbol}).`;
+  help.textContent = "Hit Restart to play again.";
+  yesBtn.style.display = "none";
+  noBtn.style.display = "none";
+  skipBtn.textContent = "Restart";
+  skipBtn.onclick = restart;
+}
+function failure(){
+  playFail();
+  stage.classList.add("shake");
+  qtext.textContent = "😢 I give up. You beat me this time.";
+  help.textContent = "Try Undo to revisit or Restart to play again.";
+  yesBtn.style.display = "none";
+  noBtn.style.display = "none";
+  skipBtn.textContent = "Restart";
+  skipBtn.onclick = restart;
+}
+
+/* Web Audio sounds (no external files) */
+let audioCtx;
+function getCtx(){ return audioCtx||(audioCtx=new(window.AudioContext||window.webkitAudioContext)()); }
+function tone(freq, dur, when, type="sine", gain=0.05){
+  const ctx=getCtx();
+  const o=ctx.createOscillator(); const g=ctx.createGain();
+  o.type=type; o.frequency.value=freq;
+  g.gain.value=gain; g.gain.setValueAtTime(gain,ctx.currentTime+when);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+when+dur);
+  o.connect(g).connect(ctx.destination);
+  o.start(ctx.currentTime+when); o.stop(ctx.currentTime+when+dur);
+}
+function playSuccess(){
+  // little major arpeggio
+  const base=523.25; // C5
+  [[base,0],[base*1.25,0.12],[base*1.5,0.24],[base*2,0.36]].forEach(([f,t])=>tone(f,0.18,t,"triangle",0.05));
+}
+function playFail(){
+  // descending minor 3rd gliss
+  const seq=[440,392,349,329];
+  seq.forEach((f,i)=>tone(f,0.18,i*0.14,"sawtooth",0.045));
+}
+
+/* Confetti */
+function confettiBurst(){
+  const box = document.getElementById("confetti");
+  const colors = ["#ffd166","#06d6a0","#118ab2","#ef476f","#b19fff","#f5a623","#50e3c2"];
+  const N = 120;
+  for (let i=0;i<N;i++){
+    const p = document.createElement("div");
+    p.className="confetti";
+    p.style.left = Math.random()*100+"%";
+    p.style.background = colors[(Math.random()*colors.length)|0];
+    p.style.transform = `translateY(-20px) rotate(${Math.random()*360}deg)`;
+    p.style.opacity = "0.9";
+    box.appendChild(p);
+    const duration = 1500 + Math.random()*1500;
+    const xDrift = (Math.random()*2-1)*120;
+    const delay = Math.random()*200;
+    // animate
+    const start = performance.now()+delay;
+    const fall = (t)=>{
+      const now = performance.now();
+      const dt = now - start;
+      if (dt<0){ requestAnimationFrame(fall); return; }
+      const k = Math.min(1, dt/duration);
+      const y = k* (window.innerHeight + 60);
+      const x = xDrift * k;
+      p.style.transform = `translate(${x}px, ${y}px) rotate(${k*720}deg)`;
+      p.style.opacity = (1-k).toFixed(2);
+      if (k<1) requestAnimationFrame(fall);
+      else box.removeChild(p);
+    };
+    requestAnimationFrame(fall);
+  }
+}
+
+/* ===================== INIT ===================== */
+yesBtn.onclick = () => render();
+noBtn.onclick  = () => render();
+skipBtn.onclick = () => render();
+undoBtn.onclick = undo;
+restartBtn.onclick = restart;
+render();
+</script>
+</body>
+</html>
