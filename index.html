@@ -74,7 +74,7 @@
 <div class="wrap">
   <header>
     <h1>Periodic Table Akinator</h1>
-    <div class="subtitle">Think of any element (1–118). I’ll ask group/period/block/valence questions and guess it.</div>
+    <div class="subtitle">Think of any element, and I'll guess it</div>
     <div class="status">
       <span class="badge">Remaining <b id="remaining">118</b></span>
       <span class="badge">Questions <b id="qcount">0</b></span>
@@ -86,8 +86,6 @@
   </header>
 
   <main class="card" id="stage">
-    <p class="qtext" id="qtext">Think of an element. Ready?</p>
-    <p class="help" id="help">Answer with Yes / No / Skip. I’ll choose questions that split the possibilities best.</p>
     <div>
       <button class="btn ok" id="yesBtn">Yes</button>
       <button class="btn no" id="noBtn">No</button>
@@ -427,7 +425,7 @@ function success(e){
 function failure(){
   playFail();
   stage.classList.add("shake");
-  qtext.textContent = "😢 I give up. You beat me this time.";
+  qtext.textContent = "Fuck you bitch";
   help.textContent = "Try Undo to revisit or Restart to play again.";
   yesBtn.style.display = "none";
   noBtn.style.display = "none";
@@ -502,4 +500,5 @@ render();
 </script>
 </body>
 </html>
+
 
